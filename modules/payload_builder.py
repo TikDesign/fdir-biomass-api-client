@@ -1,100 +1,129 @@
 ﻿"""
 modules/payload_builder.py
 Bygger JSON-payload for biomasserapport til FDIR.
-Basert på Swagger-skjema FD0001MaanedsrapportBiomasseLakselusM.
-
-Plassholdere merket med TODO må fylles inn når svar foreligger.
+Leser rapportdata fra rapport_MAANED_AAAA.env i rapporter/-mappen.
+Faste verdier (Maskinporten, innsender, org.nr) leses fra config.env.
 """
 
-# ── Konfigurasjon ────────────────────────────────────────────────
-RAPPORTERINGS_AAR      = 2025
-RAPPORTERINGS_MAANED   = "03"   # Mars – ledetall hvis < 10
-FAGSYSTEM              = "fdir-biomass-api-client"
-
-# Innsender (hardkodet)
-INNSENDER = {
-    "navn":         "Tor Ivan Karlsen",
-    "epost":        "torik@havbruksstasjonen.no",
-    "mobilnummer":  "98202537",
-}
-
-# TODO: Fylles inn når FDIR svarer
-ORGANISASJONSNUMMER = "XXXXXXXXX"   # Syntetisk testorg.nr fra FDIR
-LOKALITETSNUMMER    = 99999         # Gyldig testlokalitet fra FDIR
-
-# TODO: Fylles inn når Richard svarer
-FISKEGRUPPENUMMER   = "UKJENT"      # Fiskegruppenummer for merdene på Røsnes
-
-# ── Testdata per merd (fra Excel Mars 2025) ─────────────────────
-# Feltrekkefølge: (merd_id, volum, forforbruk, aarsklasse,
-#                  utsatt, beholdning, snittvekt_g,
-#                  doed, destruerte, kraknes_antall)
-MERDER = [
-    ("M3",  300,  207, 2023, 0,    556,  4374, 2,  0, 0),
-    ("M4",  300,   17, 2023, 0,     68,  4378, 0,  0, 0),
-    ("M5",  300,   18, 2023, 0,    100,  4378, 0,  0, 0),
-    ("M6", 1125,  265, 2025, 0,   3699,   322, 19, 4, 0),
-    ("M8", 1125,  759, 2023, 0,    796,  4374, 2,  0, 0),
-]
+import os
+from dotenv import dotenv_values
+from modules.logger import log_info, log_error
 
 FISKEART = "102205"  # Torsk (oppdrett) – bekreftet fra /api/v1/codes/species
 
 
-def _bygg_biomasse_liste() -> list:
+def _les_rapport_fil(filsti: str) -> dict:
+    """Leser rapport-env-fil og returnerer verdier som dict."""
+    if not os.path.exists(filsti):
+        raise FileNotFoundError(
+            f"Rapport-fil ikke funnet: {filsti}\n"
+            f"Sjekk at filen ligger i rapporter/-mappen."
+        )
+    return dotenv_values(filsti)
+
+
+def _hent_int(verdier: dict, nokkel: str, standard: int = 0) -> int:
+    """Henter en integer-verdi fra dict, returnerer standard hvis tom."""
+    v = verdier.get(nokkel, "").strip()
+    if not v:
+        return standard
+    return int(v)
+
+
+def _bygg_biomasse_liste(verdier: dict) -> list:
+    """Bygger liste over biomasse-objekter basert på MERDER-listen."""
+    merder_str = verdier.get("MERDER", "").strip()
+    if not merder_str:
+        raise ValueError("MERDER er ikke definert i rapport-filen.")
+
+    merder = [m.strip() for m in merder_str.split(",")]
     biomasse = []
-    for merd_id, volum, forforbruk, aarsklasse, utsatt, beholdning, snittvekt, doed, destruerte, kraknes in MERDER:
+
+    for merd_id in merder:
+        p = merd_id  # prefiks, f.eks. "M3"
+
+        fiskegruppenummer = verdier.get(f"{p}_FISKEGRUPPENUMMER", "").strip()
+        if not fiskegruppenummer:
+            raise ValueError(
+                f"Fiskegruppenummer mangler for merd {merd_id}. "
+                f"Fyll inn {p}_FISKEGRUPPENUMMER i rapport-filen."
+            )
 
         entry = {
             "merd": {
                 "id": merd_id,
-                "volum": volum,
-                "forforbruk": forforbruk,
+                "volum": _hent_int(verdier, f"{p}_VOLUM"),
+                "forforbruk": _hent_int(verdier, f"{p}_FORFORBRUK"),
             },
             "fiskebestandPrMerd": {
                 "fiskeart": FISKEART,
-                "aarsklasse": aarsklasse,
-                "fiskegruppenummer": FISKEGRUPPENUMMER,
-                "utsattSisteMaaned": utsatt,
-                "totalbeholdning": beholdning,
-                "snittvekt": snittvekt,
-                "tellefeil": 0,
+                "aarsklasse": _hent_int(verdier, f"{p}_AARSKLASSE"),
+                "fiskegruppenummer": fiskegruppenummer,
+                "utsattSisteMaaned": _hent_int(verdier, f"{p}_UTSATT", 0),
+                "totalbeholdning": _hent_int(verdier, f"{p}_BEHOLDNING"),
+                "snittvekt": _hent_int(verdier, f"{p}_SNITTVEKT"),
+                "tellefeil": _hent_int(verdier, f"{p}_TELLEFEIL", 0),
             },
             "fisketapPrMerd": {
-                "doed": doed,
-                "utkast": destruerte,
-                "roemt": 0,
-                "uforklarlig": 0,
+                "doed": _hent_int(verdier, f"{p}_DOED", 0),
+                "utkast": _hent_int(verdier, f"{p}_DESTRUERTE", 0),
+                "roemt": _hent_int(verdier, f"{p}_ROEMT", 0),
+                "uforklarlig": _hent_int(verdier, f"{p}_UFORKLARLIG", 0),
             },
         }
 
         # Kraknes = fisk flyttet til Kraknes-lokalitet
+        kraknes = _hent_int(verdier, f"{p}_KRAKNES", 0)
         if kraknes > 0:
             entry["fiskeuttakPrMerd"] = {
                 "antall": kraknes,
-                "totalvekt": 0,   # TODO: legg til vekt hvis tilgjengelig
+                "totalvekt": 0,
                 "uttakstype": "MOVED",
             }
 
         biomasse.append(entry)
+
     return biomasse
 
 
-def build_payload() -> dict:
+def build_payload(rapport_fil: str) -> dict:
+    """
+    Bygger komplett JSON-payload fra rapport-fil og config.env.
+    rapport_fil: sti til rapport-env-filen, f.eks. 'rapporter/rapport_mars_2025.env'
+    """
+    log_info(f"Leser rapport-fil: {rapport_fil}")
+    verdier = _les_rapport_fil(rapport_fil)
+
+    config = dotenv_values("config.env")
+
+    organisasjonsnummer = config.get("ORGANISASJONSNUMMER", "").strip()
+    lokalitetsnummer    = config.get("LOKALITETSNUMMER", "").strip()
+
+    if not organisasjonsnummer or organisasjonsnummer == "XXXXXXXXX":
+        raise ValueError("ORGANISASJONSNUMMER er ikke satt i config.env – venter på FDIR.")
+    if not lokalitetsnummer or lokalitetsnummer == "XXXXX":
+        raise ValueError("LOKALITETSNUMMER er ikke satt i config.env – venter på FDIR.")
+
     payload = {
         "oppgaveFD0001": {
-            "aar": RAPPORTERINGS_AAR,
-            "rapporteringsmaaned": RAPPORTERINGS_MAANED,
-            "fagsystem": FAGSYSTEM,
-            "innsender": INNSENDER,
+            "aar": _hent_int(verdier, "RAPPORTERINGS_AAR"),
+            "rapporteringsmaaned": verdier.get("RAPPORTERINGS_MAANED", "").strip(),
+            "fagsystem": "fdir-biomass-api-client",
+            "innsender": {
+                "navn":        config.get("INNSENDER_NAVN", "Tor Ivan Karlsen"),
+                "epost":       config.get("INNSENDER_EPOST", "torik@havbruksstasjonen.no"),
+                "mobilnummer": config.get("INNSENDER_MOBIL", "98202537"),
+            },
             "selskap": {
-                "organisasjonsnummer": ORGANISASJONSNUMMER,
+                "organisasjonsnummer": organisasjonsnummer,
                 "lokalitet": {
-                    "nummer": LOKALITETSNUMMER,
+                    "nummer": int(lokalitetsnummer),
                 },
             },
         },
         "skjemainnholdFD0001": {
-            "biomasse": _bygg_biomasse_liste(),
+            "biomasse": _bygg_biomasse_liste(verdier),
         },
     }
+
     return payload
