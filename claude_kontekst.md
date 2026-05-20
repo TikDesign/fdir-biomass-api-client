@@ -10,78 +10,90 @@
 - Mobil: 982 02 537
 
 ## Prosjektet
-Vi setter opp automatisk innsending av biomasserapporter til Fiskeridirektoratets Biomass Reporting API via Maskinporten OAuth2 JWT Bearer Grant.
+Vi setter opp automatisk innsending av biomasserapporter til Fiskeridirektoratets 
+Biomass Reporting API via Maskinporten OAuth2 JWT Bearer Grant.
 
 ## GitHub
 - Repo: https://github.com/TikDesign/fdir-biomass-api-client
 - Lokal mappe: C:\Users\TorIvanKarlsen\Documents\biomasse-rapportering
 
 ## Teknisk status
-- Python 3.14.5 installert
-- VS Code installert
-- Git installert
+- Python 3.14.5, Git, VS Code installert
 - Virtuelt miljø: .venv (aktiveres med: source .venv/Scripts/activate)
 - Alle avhengigheter installert: requests, PyJWT, cryptography, python-dotenv
 - Nøkkelpar generert: keys/private.pem og keys/public.pem
-- config.env konfigurert med:
-  - MASKINPORTEN_TOKEN_URL=https://test.maskinporten.no/token
-  - MASKINPORTEN_CLIENT_ID=11bb42d5-9f90-4c23-a4d9-fa0d79da51f4
-  - MASKINPORTEN_SCOPE=fdir:biomassreportingapi
-  - MASKINPORTEN_KID=6e8690fc-ce72-4c37-a296-5c88776b4508
-  - PRIVATE_KEY_PATH=keys/private.pem
-  - FDIR_API_BASE_URL=https://testapi.fiskeridir.no/biomass-reporting-api-protected
 - Maskinporten-token testet og bekreftet fungerende ✅
 - Swagger-skjema hentet og lagret i output/swagger.json ✅
+- payload_builder.py leser fra rapport-env-fil ✅
+- main.py viser konfigurasjon og ber om bekreftelse før innsending ✅
+
+## config.env (faste verdier – ikke i Git)
+- MASKINPORTEN_TOKEN_URL=https://test.maskinporten.no/token
+- MASKINPORTEN_CLIENT_ID=11bb42d5-9f90-4c23-a4d9-fa0d79da51f4
+- MASKINPORTEN_SCOPE=fdir:biomassreportingapi
+- MASKINPORTEN_KID=6e8690fc-ce72-4c37-a296-5c88776b4508
+- PRIVATE_KEY_PATH=keys/private.pem
+- FDIR_API_BASE_URL=https://testapi.fiskeridir.no/biomass-reporting-api-protected
+- ORGANISASJONSNUMMER=XXXXXXXXX (venter på FDIR)
+- LOKALITETSNUMMER=XXXXX (venter på FDIR)
+- INNSENDER_NAVN=Tor Ivan Karlsen
+- INNSENDER_EPOST=torik@havbruksstasjonen.no
+- INNSENDER_MOBIL=98202537
 
 ## Prosjektstruktur
 biomasse-rapportering/
 ├── main.py                  (orkestrerer alle faser)
-├── config.env               (IKKE i Git – inneholder hemmeligheter)
+├── config.env               (IKKE i Git – faste verdier)
 ├── config.env.example
 ├── requirements.txt
-├── .gitignore
-├── test_token.py            (tester Maskinporten-token)
-├── fetch_swagger.py         (henter API-skjema)
+├── TODO.md
+├── claude_kontekst.md
+├── test_token.py
+├── fetch_swagger.py
+├── fetch_species.py
 ├── modules/
-│   ├── payload_builder.py   (testdata → JSON-payload)
+│   ├── payload_builder.py   (leser fra rapport-env-fil)
 │   ├── maskinporten.py      (JWT Bearer Grant → token)
 │   ├── api_client.py        (POST til FDIR API)
-│   └── logger.py            (logging og fillagring)
+│   └── logger.py
+├── rapporter/
+│   └── rapport_mars_2025.env  (fylles ut av Jørgen hver måned)
 ├── output/
-│   ├── swagger.json         (hentet API-skjema)
+│   ├── swagger.json
+│   ├── species_codes.json
 │   ├── payload.json
 │   └── response.json
 └── keys/
     ├── private.pem          (IKKE i Git)
-    └── public.pem           (lastet opp til Maskinporten)
+    └── public.pem
 
-## API-endepunkter (testmiljø)
-- POST rapport:   /api/v1/reports
-- GET rapport:    /api/v1/reports/{rapportId}
-- GET logger:     /api/v1/reports/logs
-- GET arter:      /api/v1/codes/species
-- GET whoami:     /api/v1/whoami
+## Fiskeart
+- Torsk (oppdrett) = 102205 (bekreftet fra /api/v1/codes/species)
 
-## Venter på svar fra
-1. FDIR (akva-hjelp@fiskeridir.no):
-   - Syntetisk testorg.nr fra Tenor testdatabase
-   - Gyldige lokalitetsnummer i testmiljøet
+## Fiskegruppenummer (mottatt fra Richard Brandser Johansen)
+- M3 = 2023.01.02.01
+- M4 = 2023.01.02.03
+- M5 = 2023.01.02.04
+- M6 = 2025.01
+- M8 = 2023.01.02.02
 
-2. Jørgen (biologiansvarlig) – 6 faglige avklaringer:
-   - Fiskeart-kode (4–6 tegn) for Torsk oppdrett
-   - Betyr årsklasse GF23 = 2023?
-   - Hva er fiskegruppenummer – merd-ID eller annet?
-   - Hører Kraknes til Rømt eller Uforklarlig tap?
-   - Hvilken uttakstype brukes (GUTTED/SOLD/MOVED etc.)?
-   - Hvilken fortype brukes (DRY_FEED etc.)?
+## Kontaktpersoner
+- Jørgen Wiesener – biologiansvarlig (Jorgen.Wiesener@havbruksstasjonen.no)
+- Richard Brandser Johansen – forskningsteknikker (Richard.Johansen@havbruksstasjonen.no)
+- Andreas Kjærner-Semb – FDIR rådgiver (Andreas.Kjarner-Semb@fiskeridir.no)
+
+## Venter på
+1. Bekreftelse på korrekte Mars-data og merd-numre (Richard)
+2. PDF med syntetisk testorg.nr + lokalitetsnummer (Andreas / FDIR Teams-kanal)
 
 ## Neste steg
-1. Motta svar fra Jørgen og FDIR
-2. Oppdatere payload_builder.py med korrekt feltstruktur basert på Swagger-skjema
-3. Kjøre python main.py og sende første testrapport
-4. IKKE send til API før payload er bekreftet korrekt!
+1. Motta bekreftelse på Mars-data fra Richard
+2. Motta testorg.nr og lokalitetsnummer fra Andreas
+3. Oppdatere rapport_mars_2025.env med korrekte data
+4. Fylle inn org.nr og lokalitetsnummer i config.env
+5. Kjøre python main.py og sende første testrapport
+6. Svare NEI på innsending til API er 100% bekreftet klar!
 
-## Viktig
-- Kjør ALDRI python main.py og svar "ja" på innsending før payload er 100% klar
-- keys/ og config.env er aldri i Git
-- Testmiljø brukes inntil videre – produksjons-URL byttes i config.env når tiden er inne
+## Fase 2 – Planlagt senere
+- Streamlit-webskjema for Jørgen (ingen terminal/kode nødvendig)
+- Skr
