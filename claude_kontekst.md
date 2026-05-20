@@ -34,8 +34,8 @@ Biomass Reporting API via Maskinporten OAuth2 JWT Bearer Grant.
 - MASKINPORTEN_KID=6e8690fc-ce72-4c37-a296-5c88776b4508
 - PRIVATE_KEY_PATH=keys/private.pem
 - FDIR_API_BASE_URL=https://testapi.fiskeridir.no/biomass-reporting-api-protected
-- ORGANISASJONSNUMMER=XXXXXXXXX (venter på FDIR)
-- LOKALITETSNUMMER=XXXXX (venter på FDIR)
+- ORGANISASJONSNUMMER=212645192
+- LOKALITETSNUMMER=10560
 - INNSENDER_NAVN=Tor Ivan Karlsen
 - INNSENDER_EPOST=torik@havbruksstasjonen.no
 - INNSENDER_MOBIL=98202537
