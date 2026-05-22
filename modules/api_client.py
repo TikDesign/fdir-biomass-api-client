@@ -16,8 +16,7 @@ API_BASE_URL = os.getenv(
     "FDIR_API_BASE_URL",
     "https://testapi.fiskeridir.no/biomass-reporting-api-protected",
 )
-RAPPORT_ENDPOINT = f"{API_BASE_URL}/reports"
-
+RAPPORT_ENDPOINT = f"{API_BASE_URL}/api/v1/reports"
 
 def send_report(payload: dict, access_token: str) -> dict:
     headers = {
