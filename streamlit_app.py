@@ -353,22 +353,24 @@ def sjekk_identiske_tall(merder):
         if merd_id not in forrige:
             return False
         p = forrige[merd_id]
-        if (merd["beholdning"]  != p.get("beholdning", -1) or
-            merd["snittvekt"]   != p.get("snittvekt", -1)  or
-            merd["forforbruk"]  != p.get("forforbruk", -1) or
-            merd["doed"]        != p.get("doed", -1)       or
-            merd["destruerte"]  != p.get("destruerte", -1) or
-            merd["kraknes"]     != p.get("kraknes", -1)):
+        # Kun beholdning, snittvekt og forforbruk sammenlignes
+        # Døde, destruerte og kraknes nullstilles alltid og sammenlignes ikke
+        if (merd["beholdning"] != p.get("beholdning", -1) or
+            merd["snittvekt"]  != p.get("snittvekt", -1)  or
+            merd["forforbruk"] != p.get("forforbruk", -1)):
             return False
     return True
 
 # ── Rapport-fil funksjoner ───────────────────────────────────────
 def finn_siste_rapport_fil() -> str | None:
-    """Finner nyeste rapport-env-fil i rapporter/-mappen basert på filnavn."""
+    """Finner nyeste innsendte rapport-env-fil – ekskluderer kladd.env."""
     mappe = "rapporter"
     if not os.path.exists(mappe):
         return None
-    filer = sorted([f for f in os.listdir(mappe) if f.endswith(".env")], reverse=True)
+    filer = sorted([
+        f for f in os.listdir(mappe)
+        if f.endswith(".env") and f != "kladd.env"
+    ], reverse=True)
     return os.path.join(mappe, filer[0]) if filer else None
 
 def les_rapport_fil_til_merder(filsti: str) -> tuple:
@@ -387,9 +389,9 @@ def les_rapport_fil_til_merder(filsti: str) -> tuple:
             "beholdning":        int(verdier.get(p + "_BEHOLDNING", 0)),
             "snittvekt":         int(verdier.get(p + "_SNITTVEKT", 0)),
             "forforbruk":        int(verdier.get(p + "_FORFORBRUK", 0)),
-            "doed":              int(verdier.get(p + "_DOED", 0)),
-            "destruerte":        int(verdier.get(p + "_DESTRUERTE", 0)),
-            "kraknes":           int(verdier.get(p + "_KRAKNES", 0)),
+            "doed":              0,  # Nullstilles hver måned
+            "destruerte":        0,  # Nullstilles hver måned
+            "kraknes":           0,  # Nullstilles hver måned
         })
     aar    = int(verdier.get("RAPPORTERINGS_AAR", datetime.now().year))
     maaned = verdier.get("RAPPORTERINGS_MAANED", "01")
@@ -436,6 +438,50 @@ def lagre_rapport_env(aar: int, maaned: str, merder: list, rapport_id: str):
         f.write("\n".join(linjer))
     return filnavn
 
+# ── Kladd-funksjoner ─────────────────────────────────────────────
+KLADD_FIL = "rapporter/kladd.env"
+
+def lagre_kladd(aar: int, maaned: str, merder: list):
+    """Lagrer gjeldende skjemadata som kladd."""
+    os.makedirs("rapporter", exist_ok=True)
+    merder_ids = ",".join([m["id"] for m in merder])
+    linjer = [
+        "# KLADD – ikke sendt inn",
+        "RAPPORTERINGS_AAR=" + str(aar),
+        "RAPPORTERINGS_MAANED=" + maaned,
+        "MERDER=" + merder_ids,
+        "",
+    ]
+    for merd in merder:
+        p = merd["id"]
+        linjer += [
+            "# Merd " + p,
+            p + "_FISKEGRUPPENUMMER=" + str(merd["fiskegruppenummer"]),
+            p + "_VOLUM=" + str(merd["volum"]),
+            p + "_AARSKLASSE=" + str(merd["aarsklasse"]),
+            p + "_BEHOLDNING=" + str(merd["beholdning"]),
+            p + "_SNITTVEKT=" + str(merd["snittvekt"]),
+            p + "_FORFORBRUK=" + str(merd["forforbruk"]),
+            p + "_DOED=" + str(merd["doed"]),
+            p + "_DESTRUERTE=" + str(merd["destruerte"]),
+            p + "_KRAKNES=" + str(merd["kraknes"]),
+            "",
+        ]
+    with open(KLADD_FIL, "w", encoding="utf-8") as f:
+        f.write("\n".join(linjer))
+
+def slett_kladd():
+    """Sletter kladd-filen."""
+    if os.path.exists(KLADD_FIL):
+        os.remove(KLADD_FIL)
+
+def kladd_finnes() -> bool:
+    return os.path.exists(KLADD_FIL)
+
+def nullstill_skjema_nokler():
+    """Øker versjonsnummer slik at alle widgets tegnes på nytt med nye verdier."""
+    st.session_state.skjema_versjon = st.session_state.get("skjema_versjon", 0) + 1
+
 # ── Standard merddata (brukes kun hvis ingen rapport-fil finnes) ──
 STANDARD_MERDER = [
     {"id": "M2", "volum": 300,  "aarsklasse": 2023, "fiskegruppenummer": "2023.01.02.01", "beholdning": 0, "snittvekt": 0, "forforbruk": 0, "doed": 0, "destruerte": 0, "kraknes": 0},
@@ -446,15 +492,40 @@ STANDARD_MERDER = [
 ]
 
 # ── Session state ─────────────────────────────────────────────────
-if "merder" not in st.session_state:
-    siste_fil = finn_siste_rapport_fil()
-    if siste_fil:
-        _, _, innlastede_merder = les_rapport_fil_til_merder(siste_fil)
+def _last_inn_fra_fil():
+    """Laster inn merder fra kladd eller siste rapport-fil."""
+    if kladd_finnes():
+        _, _, innlastede_merder = les_rapport_fil_til_merder(KLADD_FIL)
         st.session_state.merder = innlastede_merder
-        st.session_state.siste_rapport_fil = siste_fil
+        st.session_state.siste_rapport_fil = KLADD_FIL
+        st.session_state.fra_kladd = True
     else:
-        st.session_state.merder = [m.copy() for m in STANDARD_MERDER]
-        st.session_state.siste_rapport_fil = None
+        siste_fil = finn_siste_rapport_fil()
+        if siste_fil:
+            aar_fil, maaned_fil, innlastede_merder = les_rapport_fil_til_merder(siste_fil)
+            st.session_state.merder = innlastede_merder
+            st.session_state.siste_rapport_fil = siste_fil
+            st.session_state.aar_valgt = aar_fil
+            st.session_state.maaned_valgt = maaned_fil
+        else:
+            st.session_state.merder = [m.copy() for m in STANDARD_MERDER]
+            st.session_state.siste_rapport_fil = None
+        st.session_state.fra_kladd = False
+    nullstill_skjema_nokler()
+
+# Last alltid inn på nytt hvis siden er i skjema-modus og ingen aktiv redigering
+if "merder" not in st.session_state:
+    _last_inn_fra_fil()
+else:
+    # Sjekk om det finnes en nyere fil enn det som er lastet
+    siste_fil_na = finn_siste_rapport_fil()
+    lastet_fil   = st.session_state.get("siste_rapport_fil")
+    if (siste_fil_na and
+        lastet_fil and
+        siste_fil_na != lastet_fil and
+        lastet_fil != KLADD_FIL and
+        not st.session_state.get("fra_kladd")):
+        _last_inn_fra_fil()
 if "side" not in st.session_state:
     st.session_state.side = "skjema"
 if "payload" not in st.session_state:
@@ -465,6 +536,8 @@ if "advarsel_duplikat" not in st.session_state:
     st.session_state.advarsel_duplikat = None
 if "advarsel_identisk" not in st.session_state:
     st.session_state.advarsel_identisk = False
+if "skjema_versjon" not in st.session_state:
+    st.session_state.skjema_versjon = 0
 
 # ── Header ───────────────────────────────────────────────────────
 col_logo, col_tittel = st.columns([1, 4])
@@ -488,21 +561,48 @@ if er_test_modus():
 # ════════════════════════════════════════════════════════════════
 if st.session_state.side == "skjema":
 
-    # Vis hvilken fil som er lastet
-    if st.session_state.get("siste_rapport_fil"):
-        st.info("📂 Forhåndsutfylt fra: **" + st.session_state.siste_rapport_fil + "**")
-    else:
-        st.info("📂 Ingen tidligere rapport funnet – starter med standardverdier.")
+    # Vis hvilken fil som er lastet + tilbakestill-knapp
+    col_info, col_reset = st.columns([5, 1])
+    with col_info:
+        if st.session_state.get("siste_rapport_fil") and not st.session_state.get("fra_kladd"):
+            st.info("📂 Forhåndsutfylt fra: **" + st.session_state.siste_rapport_fil + "**")
+        elif not st.session_state.get("siste_rapport_fil"):
+            st.info("📂 Ingen tidligere rapport funnet – starter med standardverdier.")
+    with col_reset:
+        st.markdown("<br>", unsafe_allow_html=True)
+        siste_fil = finn_siste_rapport_fil()
+        if st.button("↩️ Hent siste innsendte rapport", use_container_width=True):
+            if siste_fil and siste_fil != KLADD_FIL:
+                aar_fil, maaned_fil, innlastede_merder = les_rapport_fil_til_merder(siste_fil)
+                st.session_state.merder = innlastede_merder
+                st.session_state.siste_rapport_fil = siste_fil
+                st.session_state.fra_kladd = False
+                st.session_state.aar_valgt = aar_fil
+                st.session_state.maaned_valgt = maaned_fil
+                slett_kladd()
+                nullstill_skjema_nokler()
+                st.rerun()
 
     # Rapporteringsperiode
     st.subheader("📅 Rapporteringsperiode")
+
+    # Bruk lagret verdi hvis den finnes (husker valg ved tilbake fra forhåndsvisning)
+    default_aar    = st.session_state.get("aar_valgt", datetime.now().year)
+    default_maaned = st.session_state.get("maaned_valgt", None)
+    maaned_liste   = list(MAANEDER.values())
+    if default_maaned and default_maaned in MAANEDER:
+        default_maaned_index = list(MAANEDER.keys()).index(default_maaned)
+    else:
+        default_maaned_index = datetime.now().month - 2 if datetime.now().month > 1 else 0
+
     col1, col2 = st.columns(2)
     with col1:
-        aar = st.number_input("År", min_value=2020, max_value=2030, value=datetime.now().year)
+        aar = st.number_input("År", min_value=2020, max_value=2030, value=int(default_aar))
     with col2:
-        maaned_navn = st.selectbox("Måned", list(MAANEDER.values()),
-            index=datetime.now().month - 2 if datetime.now().month > 1 else 0)
+        maaned_navn = st.selectbox("Måned", maaned_liste, index=default_maaned_index)
         maaned_kode = [k for k, v in MAANEDER.items() if v == maaned_navn][0]
+        st.session_state.maaned_valgt = maaned_kode
+    st.session_state.aar_valgt = int(aar)
 
     st.divider()
 
@@ -527,26 +627,28 @@ if st.session_state.side == "skjema":
             st.markdown(f'<div class="merd-card"><div class="merd-title">Merd {merd["id"]}</div></div>', unsafe_allow_html=True)
         with col_slett:
             st.markdown("<br>", unsafe_allow_html=True)
-            merk = st.checkbox("🗑️ Merk for sletting", key=f"slett_{i}", value=False)
+            v = st.session_state.skjema_versjon
+            merk = st.checkbox("🗑️ Merk for sletting", key=f"slett_{i}_v{v}", value=False)
             if merk:
                 merket_for_sletting.append(i)
 
+        v = st.session_state.skjema_versjon
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.session_state.merder[i]["id"] = st.text_input("Merd ID", value=merd["id"], key=f"id_{i}")
-            st.session_state.merder[i]["volum"] = st.number_input("Volum (m³)", value=merd["volum"], min_value=0, key=f"vol_{i}")
-            st.session_state.merder[i]["aarsklasse"] = st.number_input("Årsklasse", value=merd["aarsklasse"], min_value=2000, max_value=2030, key=f"aar_{i}")
-            st.session_state.merder[i]["fiskegruppenummer"] = st.text_input("Fiskegruppenummer", value=merd["fiskegruppenummer"], key=f"fgn_{i}")
+            st.session_state.merder[i]["id"] = st.text_input("Merd ID", value=merd["id"], key=f"id_{i}_v{v}")
+            st.session_state.merder[i]["volum"] = st.number_input("Volum (m³)", value=merd["volum"], min_value=0, key=f"vol_{i}_v{v}")
+            st.session_state.merder[i]["aarsklasse"] = st.number_input("Årsklasse", value=merd["aarsklasse"], min_value=2000, max_value=2030, key=f"aar_{i}_v{v}")
+            st.session_state.merder[i]["fiskegruppenummer"] = st.text_input("Fiskegruppenummer", value=merd["fiskegruppenummer"], key=f"fgn_{i}_v{v}")
 
         with c2:
-            st.session_state.merder[i]["beholdning"] = st.number_input("Beholdning (fisk)", value=merd["beholdning"], min_value=0, key=f"beh_{i}")
-            st.session_state.merder[i]["snittvekt"] = st.number_input("Snittvekt (gram)", value=merd["snittvekt"], min_value=0, key=f"snitt_{i}")
-            st.session_state.merder[i]["forforbruk"] = st.number_input("Fôrforbruk (kg)", value=merd["forforbruk"], min_value=0, key=f"for_{i}")
+            st.session_state.merder[i]["beholdning"] = st.number_input("Beholdning (fisk)", value=merd["beholdning"], min_value=0, key=f"beh_{i}_v{v}")
+            st.session_state.merder[i]["snittvekt"] = st.number_input("Snittvekt (gram)", value=merd["snittvekt"], min_value=0, key=f"snitt_{i}_v{v}")
+            st.session_state.merder[i]["forforbruk"] = st.number_input("Fôrforbruk (kg)", value=merd["forforbruk"], min_value=0, key=f"for_{i}_v{v}")
 
         with c3:
-            st.session_state.merder[i]["doed"] = st.number_input("Døde", value=merd["doed"], min_value=0, key=f"doed_{i}")
-            st.session_state.merder[i]["destruerte"] = st.number_input("Destruerte", value=merd["destruerte"], min_value=0, key=f"dest_{i}")
-            st.session_state.merder[i]["kraknes"] = st.number_input("Kraknes (flyttet)", value=merd["kraknes"], min_value=0, key=f"krak_{i}")
+            st.session_state.merder[i]["doed"] = st.number_input("Døde", value=merd["doed"], min_value=0, key=f"doed_{i}_v{v}")
+            st.session_state.merder[i]["destruerte"] = st.number_input("Destruerte", value=merd["destruerte"], min_value=0, key=f"dest_{i}_v{v}")
+            st.session_state.merder[i]["kraknes"] = st.number_input("Kraknes (flyttet)", value=merd["kraknes"], min_value=0, key=f"krak_{i}_v{v}")
 
         st.divider()
 
@@ -651,6 +753,9 @@ if st.session_state.side == "skjema":
             st.warning("⚠️ " + a)
 
         if not feil:
+            # Lagre kladd automatisk før forhåndsvisning
+            lagre_kladd(int(aar), maaned_kode, st.session_state.merder)
+            st.session_state.fra_kladd = True
             config = les_config()
             st.session_state.payload = bygg_payload({
                 "aar": int(aar),
@@ -742,6 +847,7 @@ elif st.session_state.side == "forhandsvisning":
                     status, response = send_rapport(st.session_state.payload)
                     if status == 200:
                         lagre_historikk(st.session_state.payload, response)
+                        slett_kladd()  # Slett kladd etter vellykket innsending
                         # Lagre rapport-env-fil for dokumentasjon
                         oppgave_data = st.session_state.payload.get("oppgaveFD0001", {})
                         rapport_fil = lagre_rapport_env(
@@ -810,3 +916,17 @@ elif st.session_state.side == "kvittering":
         st.session_state.response = None
         st.session_state.lagret_rapport_fil = None
         st.rerun()
+
+# ── Footer ───────────────────────────────────────────────────────
+st.markdown("""
+<div style="
+    text-align: center;
+    color: #BFBFBF;
+    font-size: 0.75rem;
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid #E8EEF4;
+">
+    Designed by Tor Ivan Karlsen &nbsp;·&nbsp; Havbruksstasjonen i Tromsø AS
+</div>
+""", unsafe_allow_html=True)
