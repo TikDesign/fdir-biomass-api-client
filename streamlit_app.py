@@ -83,6 +83,15 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.8rem 1rem;
     }
+
+    /* Skjul Deploy-knapp – alle kjente Streamlit-versjoner */
+    .stDeployButton { display: none !important; }
+    [data-testid="stDeployButton"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    header [data-testid="stToolbarActions"] { display: none !important; }
+    .viewerBadge_container__1QSob { display: none !important; }
+    #MainMenu { display: none !important; }
+    footer { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
